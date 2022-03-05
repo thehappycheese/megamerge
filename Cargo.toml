@@ -9,6 +9,6 @@ name = "megamerge"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3  = { version = "0.15.1", features = ["extension-module"] }
-numpy = { version = "0.15" }
-ndarray = { version = "0.15" }
+pyo3    = { version = "0.15.1", features = ["extension-module"] }
+numpy   = { version = "0.15" }
+ndarray = { version = "0.15", features=["rayon"] }

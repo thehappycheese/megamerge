@@ -6,8 +6,18 @@ def test_import():
 def test_do_chonk():
     import megamerge
     import numpy as np
-    seg = np.array([[2,2,2],[2,5,6]]).astype("f8")
-    dat = np.array([[1,2,3],[4,5,6]]).astype("f8")
+    seg = np.array([
+        [0,1,6],
+        [1,5,8]
+    ]).astype("f8")
     
-    res = megamerge.do_chonk(seg, dat)
-    assert res is seg
+    dat = np.array([
+        [0,3,6],
+        [3,6,9]
+    ]).astype("f8")
+    
+    res = megamerge.do_chonk(
+        seg,
+        dat,
+    )
+    print(res)

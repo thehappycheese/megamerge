@@ -1,4 +1,4 @@
-# `megamerge` <!-- omit in toc -->
+# megamerge <!-- omit in toc -->
 
 A python library accelerated by a rust binary for joining / merging tables with
 an interval index.

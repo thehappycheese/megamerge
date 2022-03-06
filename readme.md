@@ -1,36 +1,64 @@
 # `megamerge` <!-- omit in toc -->
 
-The aim is to create a merge index / overlap list as fast as possible.
+A python library accelerated by a rust binary for joining / merging tables with
+an interval index.
 
-This may involve `numpy`/`scipy`, or we may delve into Rust.
+This project is an improvement over a previous tool documented here
+<https://github.com/thehappycheese/dtimsprep>
 
-The aim is to complete the part of the merge task that takes exponential time, such that python can perform the aggregations which take linear time.
-
-There are some experiments in the `notebooks` folder.
+The part of the algorithm accelerated by rust has been minimized as it seems
+preferable to maintain the majority of the code in python, where things are a
+bit more concise and easy to read. Rust has been used to accelerate the part of
+the task which runs in exponential time `O(n²)`, wrapped in a python library
+which handles the linear-time `O(n)` portion of the task.
 
 ## Contents <!-- omit in toc -->
 
-- [1. Theory](#1-theory)
-  - [1.1. Example `segmentation` and `data`](#11-example-segmentation-and-data)
-  - [1.2. Overlap Tables](#12-overlap-tables)
-    - [1.2.1. psudocode](#121-psudocode)
-    - [1.2.2. example overlap tables](#122-example-overlap-tables)
-  - [1.3. The solution to the exponential memory problem](#13-the-solution-to-the-exponential-memory-problem)
-- [2. Development Setup](#2-development-setup)
+- [1. Installation](#1-installation)
+- [2. Usage](#2-usage)
+- [3. Theory](#3-theory)
+  - [3.1. Example `segmentation` and `data`](#31-example-segmentation-and-data)
+  - [3.2. Overlap Tables](#32-overlap-tables)
+    - [3.2.1. psudocode](#321-psudocode)
+    - [3.2.2. example overlap tables](#322-example-overlap-tables)
+  - [3.3. The solution to the exponential memory problem](#33-the-solution-to-the-exponential-memory-problem)
+- [4. Development Setup](#4-development-setup)
 
-## 1. Theory
+## 1. Installation
 
-Given a target `segmentation`, and some `data` our goal is to efficiently merge the measures and categories of interest from `data` onto the `segmentation` according to the overlap. An overlap occurs when `index` is matching and the `from`/`to` ranges overlap.
+See the [releases](https://github.com/thehappycheese/megamerge/releases) page
+for install / uninstall instructions
 
-We are interested in maintaining the index of the `segmentation`; ie the number of rows must stay the same, and the values in the columns `index`, `from`, and `to` should remain unaffected; we are just adding new columns to the `segmentation`.
+## 2. Usage
 
-There are a number of ways to aggregate the  *measure* and *category* columns in the `data` table as they move to the `segmentation` but we will get to those later.
+TODO
 
-### 1.1. Example `segmentation` and `data`
+The api has not been finalized yet. The
+[releases](https://github.com/thehappycheese/megamerge/releases) page has some
+example code, and there is a
+[notebooks](https://github.com/thehappycheese/megamerge/tree/main/notebooks)
+folder with some example jupyter notebooks.
+
+## 3. Theory
+
+Given a target `segmentation`, and some `data` our goal is to efficiently merge
+the measures and categories of interest from `data` onto the `segmentation`
+according to the overlap. An overlap occurs when `key` is matching and the
+`from`/`to` ranges overlap.
+
+We are interested in maintaining the key of the `segmentation`; ie the number of
+rows must stay the same, and the values in the columns `key`, `from`, and `to`
+should remain unaffected; we are just adding new columns to the `segmentation`.
+
+There are a number of ways to aggregate the *measure* and *category* columns in
+the `data` table as they move to the `segmentation` but we will get to those
+later.
+
+### 3.1. Example `segmentation` and `data`
 
 **segmentation**
 
-|   id | index | from |   to |
+|   id | key | from |   to |
 | ---: | ----: | ---: | ---: |
 |    0 |     0 |    0 |  100 |
 |    1 |     0 |  100 |  200 |
@@ -40,7 +68,7 @@ There are a number of ways to aggregate the  *measure* and *category* columns in
 
 **data**
 
-|   id | index | from |   to | some_measure | some_category |
+|   id | key | from |   to | some_measure | some_category |
 | ---: | ----: | ---: | ---: | -----------: | :-----------: |
 |    0 |     0 |   50 |  140 |          1.0 |      "A"      |
 |    1 |     0 |  140 |  160 |          2.0 |      "B"      |
@@ -54,20 +82,48 @@ There are a number of ways to aggregate the  *measure* and *category* columns in
 |    9 |     1 |   10 |   80 |          9.0 |      "G"      |
 |   10 |     1 |   80 |  120 |         10.0 |      "H"      |
 
-### 1.2. Overlap Tables
+### 3.2. Overlap Tables
 
-Our main challenge is efficiently computing the "overlap table". For each row in
-`segments` where the `index` column matches the `index` column in `data`, we
-want the `id` and `overlap_length` of rows in `data`. From this we can compute
-the length weighted average, length weighted percentile, proportional sum etc.
-(more detail later)
+Our main challenge is efficiently computing the `overlap_tables`. For each row in
+`segments` where the `key` column matches the `key` column in `data`, we want
+the `id` and `overlap_length` of rows in `data`. From this we can compute the
+length weighted average, length weighted percentile, proportional sum etc. (more
+detail later)
+
+#### 3.2.1. psudocode
+
+```python
+# `outer_minimum` and `outer_maximum` are similar in function to the outer product
+# except they compute the minimum / maximum of instead of multiplying elements
+# and return a huge matrix which has the dimensions of the first and second input.
+overlap_tables = []
+for key in unique(segmentation["key"]):
+    overlap_min = outer_maximum(
+        segmentation.loc[key, "from"],
+        data.loc[key, "from"]
+    )
+    overlap_max = outer_minimum(
+        segmentation.loc[key,   "to"],
+        data.loc[key,   "to"]
+    )
+    signed_overlap = overlap_max - overlap_min
+    overlap        = maximum(0, signed_overlap)
+    overlap_tables.append(overlap)
+```
 
 Notes about the psudocode:
 
 1. In practice, this code does not work because it requires exponential memory 😦,<br> 
    **however** there is a strong motivation to make it work anyway,
    because:
-2. The algorithim is not fussy about self-intersecting data or self-intersecting segments.
+2. The this approach is not fussy about self-intersections in `data` or
+   self-intersections in `segments`
+   - If multiple rows have overlapping `from`/`to` ranges (in either `data` or
+     `segments`) then we are still able to aggregate all overlapping values from
+     `data` proportional to the length by which they overlap the target row in
+     `segments`.
+   - Typically we are not interested in `segments` which are self-intersecting
+     anyway, but it is fairly common to have self-intersecting `data`
 3. `signed_overlap` is calculated as an intermediate value.<br> This is
    interesting because it would allow us to perform aggregations based on
    proximity (e.g. count `data` within 1 kilometer of each `segments`. Count
@@ -76,31 +132,11 @@ Notes about the psudocode:
    - negative values are the distance between intervals
    - zero values indicate touching intervals
 
-#### 1.2.1. psudocode
-
-```python
-# `outer_minimum` and `outer_maximum` are similar in function to the outer product
-# except they compute the minimum / maximum of instead of multiplying elements.
-result = []
-for index in unique(segmentation["index"]):
-    overlap_min = outer_maximum(
-        segmentation.loc[index, "from"],
-        data.loc[index, "from"]
-    )
-    overlap_max = outer_minimum(
-        segmentation.loc[index,   "to"],
-        data.loc[index,   "to"]
-    )
-    signed_overlap = overlap_max - overlap_min
-    overlap        = maximum(0, signed_overlap)
-    result.append(overlap)
-```
-
-#### 1.2.2. example overlap tables
+#### 3.2.2. example overlap tables
 
 The psudocode above would produce the following two overlap tables
 
-`from`/`to` overlap table for `index == 0`
+`from`/`to` overlap table for `key == 0`
 
 |   id |    0 |    1 |    2 |    3 |
 | ---: | ---: | ---: | ---: | ---: |
@@ -114,18 +150,33 @@ The psudocode above would produce the following two overlap tables
 |    7 |    0 |    0 |   20 |    0 |
 |    8 |    0 |    0 |    0 |   20 |
 
-`from`/`to` overlap table for `index == 1`
+`from`/`to` overlap table for `key == 1`
 
 |   id |    4 |
 | ---: | ---: |
 |    9 |   70 |
 |   10 |   20 |
 
-### 1.3. The solution to the exponential memory problem
+### 3.3. The solution to the exponential memory problem
 
+We still effectively calculate and check every cell in the overlap table. We
+simply store our output in a sparse data-structure; discarding all zeros.
 
+So far there are no smart optimizations that reduce the `O(n²)` time. These
+require either
 
-## 2. Development Setup
+- some assumptions about the input data (ie sorted, non-self-intersecting etc)
+  or
+- some pre-treatment to facilitate a divide and conquer approach
+  - This is an avenue we could explore in the future, but for now it seems our
+    simple brute force method is still working.
+
+For the moment we rely on the brute-force speed of iterating over the data in
+rust; We can top-out all CPU cores to get things done fast. For practical
+applications our speedup is over 100 times; tasks that took 20 minutes previously
+should now take about 10 seconds. But there is no escaping the exponential time problem. For some worst imaginable cases this still isn't fast enough. For these cases the use of an interval index should be reconsidered in favor of traditional database keys and join operations which are super fast even on very large data.
+
+## 4. Development Setup
 
 On windows:
 

@@ -192,5 +192,5 @@ maturin develop
 Building on windows apparently requires the `--interpreter python` argument for 'reasons'
 
 ```python
- maturin build --interpreter python
+maturin build --release --interpreter python
 ```

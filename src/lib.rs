@@ -1,12 +1,4 @@
 
-//extern crate ndarray;
-
-//use ndarray::{};
-
-
-
-
-//use ndarray::{ArrayView1, parallel::prelude::IntoParallelIterator};
 use pyo3::{
     prelude::*,
     PyIterProtocol,
@@ -23,21 +15,21 @@ use numpy::{
 };
 
 
+struct OverlapResult {
+    pub index: usize,
+    pub overlap: f64,
+    pub overlap_as_fraction_of_data_length: f64,
+    pub overlap_as_fraction_of_segment_length: f64,
+}
+
+
+
 #[pyclass] 
 struct Iterator { 
     offset:usize,
     proximity_threshold:f64,
     segmentation: Array2<f64>,
     data: Array2<f64>
-}
-// unsafe impl Send for Iterator{
-
-// }
-
-impl Iterator {
-    fn doof(&self){
-          
-    }
 }
  
 #[pyproto] 
@@ -52,13 +44,14 @@ impl PyIterProtocol<'_> for Iterator {
             
             let seg_from = slf.segmentation[(slf.offset, 0)];
             let seg_to   = slf.segmentation[(slf.offset, 1)];
+            let seg_length = seg_to - seg_from;
             
             slf.offset += 1;
             
             
             let proximity_threshold = slf.proximity_threshold;
 
-            let overlaps:Vec<(usize, f64)> = 
+            let overlaps:Vec<OverlapResult> = 
                 slf
                 .data
                 .outer_iter()
@@ -67,19 +60,36 @@ impl PyIterProtocol<'_> for Iterator {
                 .filter_map(|(index, row)| {
                     let data_from = row[0];
                     let data_to   = row[1];
+                    let data_length = data_to - data_from;
                     let overlap = f64::min(data_to, seg_to) - f64::max(data_from, seg_from);
                     if overlap > proximity_threshold {
-                        Some((index, overlap))
+                        // TODO: Struct
+                        Some(
+                            OverlapResult{
+                                index: index,
+                                overlap: overlap,
+                                overlap_as_fraction_of_data_length: overlap / data_length,
+                                overlap_as_fraction_of_segment_length: overlap / seg_length
+                            }
+                        )
                     } else {
                         None
                     }
                 })
                 .collect();
             
-            let result_index:&PyArray1<usize>   = PyArray1::from_iter(slf.py(), overlaps.iter().map(|(index, _)| *index));
-            let result_overlap:&PyArray1<f64>   = PyArray1::from_iter(slf.py(), overlaps.iter().map(|(_, overlap)| *overlap));
-            let ff = (result_index, result_overlap).to_object(slf.py());
-            let kk = <PyTuple as PyTryFrom>::try_from(ff.as_ref(slf.py())).unwrap();
+            // This struct unpacking is dumb because we have to iterate over the struct 4 times, but at least it is easy to read
+            let result_index:&PyArray1<usize>                               = PyArray1::from_iter(slf.py(), overlaps.iter().map(|OverlapResult{index, ..}| *index));
+            let result_overlap:&PyArray1<f64>                               = PyArray1::from_iter(slf.py(), overlaps.iter().map(|OverlapResult{overlap, ..}| *overlap));
+            let result_overlap_as_fraction_of_data_length:&PyArray1<f64>    = PyArray1::from_iter(slf.py(), overlaps.iter().map(|OverlapResult{overlap_as_fraction_of_data_length, ..}| *overlap_as_fraction_of_data_length));
+            let result_overlap_as_fraction_of_segment_length:&PyArray1<f64> = PyArray1::from_iter(slf.py(), overlaps.iter().map(|OverlapResult{overlap_as_fraction_of_segment_length, ..}| *overlap_as_fraction_of_segment_length));
+            let ff = (
+                result_index,
+                result_overlap,
+                result_overlap_as_fraction_of_data_length,
+                result_overlap_as_fraction_of_segment_length
+            ).to_object(slf.py());
+            let kk  = <PyTuple as PyTryFrom>::try_from(ff.as_ref(slf.py())).unwrap();
             
             IterNextOutput::Yield(
                 kk.into()

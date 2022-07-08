@@ -189,6 +189,18 @@ pip install maturin
 maturin develop
 ```
 
+On Databricks linux web terminal
+```bash
+# sudo apt-get install libssl-dev # doesnt seem to be needed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+pip install venv
+python -m venv .env
+source .env/bin/activate
+pip install maturin
+maturin develop
+```
+
 Building on windows apparently requires the `--interpreter python` argument for 'reasons'
 
 ```python
